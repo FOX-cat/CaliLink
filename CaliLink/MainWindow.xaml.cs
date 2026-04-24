@@ -665,19 +665,55 @@ namespace WpfSerialTool
 
         private double CombineIntegerFraction(short intPart, ushort fracPart)
         {
-            string fracText = fracPart.ToString("D4", CultureInfo.InvariantCulture);
-            string valueText;
+            // 先取绝对值，处理负数
+            double absValue = Math.Abs(intPart);
+            double fraction = fracPart;
 
-            if (intPart < 0)
+            int decimalPlaces = 0; // 小数位数
+
+            // 判断小数位数，根据fracPart的大小来决定
+            if (fracPart < 10)
             {
-                valueText = "-" + Math.Abs(intPart) + "." + fracText;
+                decimalPlaces = 1;  // 1 位小数
+                fraction /= 10;     // 除以 10
+            }
+            else if (fracPart < 100)
+            {
+                decimalPlaces = 2;  // 2 位小数
+                fraction /= 100;    // 除以 100
+            }
+            else if (fracPart < 1000)
+            {
+                decimalPlaces = 3;  // 3 位小数
+                fraction /= 1000;   // 除以 1000
+            }
+            else if (fracPart < 10000)
+            {
+                decimalPlaces = 4;  // 4 位小数
+                fraction /= 10000;  // 除以 10000
+            }
+            else if (fracPart < 100000)
+            {
+                decimalPlaces = 5;  // 5 位小数
+                fraction /= 100000;  // 除以 100000
             }
             else
             {
-                valueText = intPart + "." + fracText;
+                // 如果fracPart大于9999，视为无效，抛出异常
+                throw new ArgumentException("Invalid fraction part: exceeds maximum value.");
             }
 
-            return double.Parse(valueText, CultureInfo.InvariantCulture);
+            // 计算最终值
+            double result = absValue + fraction;
+
+            // 如果原始的intPart是负数，则返回负值
+            if (intPart < 0)
+            {
+                result = -result;
+            }
+
+            // 使用Math.Round进行四舍五入，确保精度正确
+            return Math.Round(result, decimalPlaces);
         }
 
         private void ParseAndShowSlaveData(byte[] frame, string rawHex)
@@ -701,7 +737,7 @@ namespace WpfSerialTool
                 double roll = CombineIntegerFraction(rollInt, rollFrac);
                 double pitch = CombineIntegerFraction(pitchInt, pitchFrac);
                 double yaw = CombineIntegerFraction(yawInt, yawFrac);
-                double temperature = CombineIntegerFraction(tempInt, tempFrac);
+                double temperature = CombineIntegerFraction(tempInt, tempFrac)-100.0;
 
                 AppendLog("解析",
                     $"从站[{slaveId}] -> 横滚角={roll:F4}°, 俯仰角={pitch:F4}°, 航向角={yaw:F4}°, 温度={temperature:F4}℃");
