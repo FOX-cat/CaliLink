@@ -139,6 +139,46 @@
             <Setter Property="ColumnHeaderStyle" Value="{StaticResource DarkDataGridColumnHeaderStyle}"/>
             <Setter Property="CellStyle" Value="{StaticResource DarkDataGridCellStyle}"/>
         </Style>
+
+        <!-- 顶部温度转换小切换开关样式 -->
+        <Style x:Key="TempToggleButtonStyle" TargetType="ToggleButton">
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Height" Value="32"/>
+            <Setter Property="Width" Value="118"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Background" Value="#1C2330"/>
+            <Setter Property="BorderBrush" Value="#334155"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border x:Name="Root"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="16">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="#1E88E5"/>
+                                <Setter TargetName="Root" Property="BorderBrush" Value="#42A5F5"/>
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Root" Property="BorderBrush" Value="#5EEAD4"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Root" Property="Background" Value="#3A4250"/>
+                                <Setter TargetName="Root" Property="BorderBrush" Value="#4A5568"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Window.Resources>
 
     <Grid Margin="15">
@@ -147,7 +187,7 @@
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <!-- 顶部标题 + 状态监视 + 时钟 -->
+        <!-- 顶部标题 + 状态监视 + 温度转换 + 时钟 -->
         <Border Grid.Row="0"
                 CornerRadius="14"
                 Background="#111827"
@@ -157,6 +197,7 @@
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="460"/>
+                    <ColumnDefinition Width="150"/>
                     <ColumnDefinition Width="180"/>
                 </Grid.ColumnDefinitions>
 
@@ -258,9 +299,36 @@
                     </Grid>
                 </Border>
 
+                <!-- 顶部温度转换开关，只新增这一块 -->
+                <Border Grid.Column="2"
+                        Margin="4,10,4,10"
+                        Padding="10,8"
+                        CornerRadius="10"
+                        Background="#0F172A"
+                        BorderBrush="#233044"
+                        BorderThickness="1"
+                        VerticalAlignment="Center">
+                    <StackPanel VerticalAlignment="Center"
+                                HorizontalAlignment="Center">
+                        <TextBlock Text="温度转换"
+                                   Foreground="#C8D1DC"
+                                   FontSize="12"
+                                   HorizontalAlignment="Center"
+                                   Margin="0,0,0,5"/>
+
+                        <ToggleButton x:Name="tglTempResolution"
+                                      Content="0.01 ℃/LSB"
+                                      IsChecked="True"
+                                      Style="{StaticResource TempToggleButtonStyle}"
+                                      Checked="tglTempResolution_Checked"
+                                      Unchecked="tglTempResolution_Unchecked"
+                                      ToolTip="切换温度原始寄存器倍率：0.01 或 0.1"/>
+                    </StackPanel>
+                </Border>
+
                 <!-- 右侧时钟 -->
                 <TextBlock x:Name="txtClock"
-                           Grid.Column="2"
+                           Grid.Column="3"
                            HorizontalAlignment="Right"
                            VerticalAlignment="Center"
                            Foreground="#93C5FD"
@@ -279,9 +347,9 @@
                 <Border Style="{StaticResource CardBorderStyle}">
                     <StackPanel>
                         <TextBlock Text="串口配置"
-                                       Foreground="White"
-                                       FontSize="18"
-                                       FontWeight="Bold"/>
+                                   Foreground="White"
+                                   FontSize="18"
+                                   FontWeight="Bold"/>
 
                         <TextBlock Text="串口号" Style="{StaticResource TextLabelStyle}"/>
                         <ComboBox x:Name="cmbPorts" Style="{StaticResource DarkComboBoxStyle}"/>
@@ -297,13 +365,13 @@
 
                         <UniformGrid Columns="2" Margin="0,8,0,0">
                             <Button x:Name="btnRefreshPorts"
-                                        Content="刷新串口"
-                                        Style="{StaticResource TechButtonStyle}"
-                                        Click="btnRefreshPorts_Click"/>
+                                    Content="刷新串口"
+                                    Style="{StaticResource TechButtonStyle}"
+                                    Click="btnRefreshPorts_Click"/>
                             <Button x:Name="btnOpenClose"
-                                        Content="打开串口"
-                                        Style="{StaticResource TechButtonStyle}"
-                                        Click="btnOpenClose_Click"/>
+                                    Content="打开串口"
+                                    Style="{StaticResource TechButtonStyle}"
+                                    Click="btnOpenClose_Click"/>
                         </UniformGrid>
                     </StackPanel>
                 </Border>
@@ -311,9 +379,9 @@
                 <Border Style="{StaticResource CardBorderStyle}">
                     <StackPanel>
                         <TextBlock Text="单站控制"
-                                       Foreground="White"
-                                       FontSize="18"
-                                       FontWeight="Bold"/>
+                                   Foreground="White"
+                                   FontSize="18"
+                                   FontWeight="Bold"/>
 
                         <Grid Margin="0,8,0,0">
                             <Grid.ColumnDefinitions>
@@ -325,87 +393,87 @@
                             </Grid.ColumnDefinitions>
 
                             <TextBlock Grid.Column="0"
-                                           Text="从站地址"
-                                           Style="{StaticResource TextLabelStyle}"
-                                           Margin="4,0,4,0"/>
+                                       Text="从站地址"
+                                       Style="{StaticResource TextLabelStyle}"
+                                       Margin="4,0,4,0"/>
 
                             <Button Grid.Column="1"
-                                        x:Name="btnSlaveMinus"
-                                        Content="-"
-                                        Style="{StaticResource MiniButtonStyle}"
-                                        Click="btnSlaveMinus_Click"
-                                        IsEnabled="False"/>
+                                    x:Name="btnSlaveMinus"
+                                    Content="-"
+                                    Style="{StaticResource MiniButtonStyle}"
+                                    Click="btnSlaveMinus_Click"
+                                    IsEnabled="False"/>
 
                             <TextBox Grid.Column="2"
-                                         x:Name="txtSlaveId"
-                                         Text="1"
-                                         HorizontalContentAlignment="Center"
-                                         Style="{StaticResource DarkTextBoxStyle}"/>
+                                     x:Name="txtSlaveId"
+                                     Text="1"
+                                     HorizontalContentAlignment="Center"
+                                     Style="{StaticResource DarkTextBoxStyle}"/>
 
                             <Button Grid.Column="3"
-                                        x:Name="btnSlavePlus"
-                                        Content="+"
-                                        Style="{StaticResource MiniButtonStyle}"
-                                        Click="btnSlavePlus_Click"
-                                        IsEnabled="False"/>
+                                    x:Name="btnSlavePlus"
+                                    Content="+"
+                                    Style="{StaticResource MiniButtonStyle}"
+                                    Click="btnSlavePlus_Click"
+                                    IsEnabled="False"/>
 
                             <Button Grid.Column="4"
-                                        x:Name="btnQuerySlave"
-                                        Content="问询从站"
-                                        Style="{StaticResource TechButtonStyle}"
-                                        Click="btnQuerySlave_Click"
-                                        IsEnabled="False"/>
+                                    x:Name="btnQuerySlave"
+                                    Content="问询从站"
+                                    Style="{StaticResource TechButtonStyle}"
+                                    Click="btnQuerySlave_Click"
+                                    IsEnabled="False"/>
                         </Grid>
 
                         <UniformGrid Columns="2" Margin="0,8,0,0">
                             <Button x:Name="btnStartCalibrate"
-                                        Content="开始校准"
-                                        Style="{StaticResource TechButtonStyle}"
-                                        Click="btnStartCalibrate_Click"
-                                        IsEnabled="False"/>
+                                    Content="开始校准"
+                                    Style="{StaticResource TechButtonStyle}"
+                                    Click="btnStartCalibrate_Click"
+                                    IsEnabled="False"/>
 
                             <Button x:Name="btnStopCalibrate"
-                                        Content="停止校准"
-                                        Style="{StaticResource DangerButtonStyle}"
-                                        Click="btnStopCalibrate_Click"
-                                        IsEnabled="False"/>
+                                    Content="停止校准"
+                                    Style="{StaticResource DangerButtonStyle}"
+                                    Click="btnStopCalibrate_Click"
+                                    IsEnabled="False"/>
                         </UniformGrid>
 
                         <Button x:Name="btnClearLog"
-                                    Content="清空接收区"
-                                    Style="{StaticResource TechButtonStyle}"
-                                    Click="btnClearLog_Click"/>
+                                Content="清空接收区"
+                                Style="{StaticResource TechButtonStyle}"
+                                Click="btnClearLog_Click"/>
                     </StackPanel>
                 </Border>
 
                 <Border Style="{StaticResource CardBorderStyle}">
                     <StackPanel>
                         <TextBlock Text="批量轮询"
-                                       Foreground="White"
-                                       FontSize="18"
-                                       FontWeight="Bold"/>
+                                   Foreground="White"
+                                   FontSize="18"
+                                   FontWeight="Bold"/>
 
                         <TextBlock Text="从站列表（例如：1,2,3,5）" Style="{StaticResource TextLabelStyle}"/>
                         <TextBox x:Name="txtSlaveList"
-                                     Text="1,2,3"
-                                     Style="{StaticResource DarkTextBoxStyle}"/>
+                                 Text="1,2,3"
+                                 Style="{StaticResource DarkTextBoxStyle}"/>
 
                         <TextBlock Text="轮询间隔(ms)" Style="{StaticResource TextLabelStyle}"/>
                         <TextBox x:Name="txtPollInterval"
-                                     Text="500"
-                                     Style="{StaticResource DarkTextBoxStyle}"/>
+                                 Text="500"
+                                 Style="{StaticResource DarkTextBoxStyle}"/>
 
                         <UniformGrid Columns="2" Margin="0,8,0,0">
                             <Button x:Name="btnStartPolling"
-                                        Content="开始轮询"
-                                        Style="{StaticResource TechButtonStyle}"
-                                        Click="btnStartPolling_Click"
-                                        IsEnabled="False"/>
+                                    Content="开始轮询"
+                                    Style="{StaticResource TechButtonStyle}"
+                                    Click="btnStartPolling_Click"
+                                    IsEnabled="False"/>
                             <Button x:Name="btnStopPolling"
-                                        Content="停止轮询"
-                                        Style="{StaticResource DangerButtonStyle}"
-                                        Click="btnStopPolling_Click"
-                                        IsEnabled="False"/>
+                                    Content="停止轮询"
+                                    Style="{StaticResource DangerButtonStyle}"
+                                    Click="btnStopPolling_Click"
+                                    IsEnabled="False"/>
                         </UniformGrid>
                     </StackPanel>
                 </Border>

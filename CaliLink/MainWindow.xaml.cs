@@ -2,456 +2,199 @@
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
-using System.Globalization;
 using System.IO.Ports;
 using System.Linq;
-using System.Runtime.CompilerServices;
-using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Shapes;
 using System.Windows.Threading;
 
 namespace WpfSerialTool
 {
+    public class SlaveData : INotifyPropertyChanged
+    {
+        private int slaveId;
+        private string rollDisplay = "0.000";
+        private string pitchDisplay = "0.000";
+        private string yawDisplay = "0.000";
+        private string temperatureDisplay = "0.000";
+        private string updateTime = "";
+        private string rawHex = "";
+
+        public int SlaveId
+        {
+            get { return slaveId; }
+            set
+            {
+                if (slaveId != value)
+                {
+                    slaveId = value;
+                    OnPropertyChanged(nameof(SlaveId));
+                }
+            }
+        }
+
+        public string RollDisplay
+        {
+            get { return rollDisplay; }
+            set
+            {
+                if (rollDisplay != value)
+                {
+                    rollDisplay = value;
+                    OnPropertyChanged(nameof(RollDisplay));
+                }
+            }
+        }
+
+        public string PitchDisplay
+        {
+            get { return pitchDisplay; }
+            set
+            {
+                if (pitchDisplay != value)
+                {
+                    pitchDisplay = value;
+                    OnPropertyChanged(nameof(PitchDisplay));
+                }
+            }
+        }
+
+        public string YawDisplay
+        {
+            get { return yawDisplay; }
+            set
+            {
+                if (yawDisplay != value)
+                {
+                    yawDisplay = value;
+                    OnPropertyChanged(nameof(YawDisplay));
+                }
+            }
+        }
+
+        public string TemperatureDisplay
+        {
+            get { return temperatureDisplay; }
+            set
+            {
+                if (temperatureDisplay != value)
+                {
+                    temperatureDisplay = value;
+                    OnPropertyChanged(nameof(TemperatureDisplay));
+                }
+            }
+        }
+
+        public string UpdateTime
+        {
+            get { return updateTime; }
+            set
+            {
+                if (updateTime != value)
+                {
+                    updateTime = value;
+                    OnPropertyChanged(nameof(UpdateTime));
+                }
+            }
+        }
+
+        public string RawHex
+        {
+            get { return rawHex; }
+            set
+            {
+                if (rawHex != value)
+                {
+                    rawHex = value;
+                    OnPropertyChanged(nameof(RawHex));
+                }
+            }
+        }
+
+        public event PropertyChangedEventHandler PropertyChanged;
+
+        private void OnPropertyChanged(string propertyName)
+        {
+            PropertyChangedEventHandler handler = PropertyChanged;
+            if (handler != null)
+            {
+                handler(this, new PropertyChangedEventArgs(propertyName));
+            }
+        }
+    }
+
     public partial class MainWindow : Window
     {
-        private SerialPort _serialPort;
-        private DispatcherTimer _clockTimer;
-        private DispatcherTimer _ledResetTimer;
-        private DispatcherTimer _pollTimer;
+        private readonly SerialPort serialPort = new SerialPort();
+        private readonly DispatcherTimer clockTimer = new DispatcherTimer();
+        private readonly DispatcherTimer pollTimer = new DispatcherTimer();
+        private readonly ObservableCollection<SlaveData> slaveDataList = new ObservableCollection<SlaveData>();
+        private readonly List<byte> rxCache = new List<byte>();
 
-        private readonly List<byte> _receiveBuffer = new List<byte>();
-        private readonly object _bufferLock = new object();
+        private bool isPolling = false;
+        private int pollIndex = 0;
 
-        private readonly List<byte> _pollSlaveIds = new List<byte>();
-        private int _pollIndex = 0;
-        private bool _isPolling = false;
-
-        // FA + slaveid + 03 + 10 + 16字节数据 + CRC2 = 22字节
-        private const int FixedResponseLength = 22;
-
-        public ObservableCollection<SlaveDataModel> SlaveDataList { get; set; }
+        private const int SlaveFrameLength = 22;
+        private const byte SlaveFrameHead = 0xFA;
 
         public MainWindow()
         {
-            Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
-
             InitializeComponent();
-
-            SlaveDataList = new ObservableCollection<SlaveDataModel>();
-            dgSlaveData.ItemsSource = SlaveDataList;
-
-            InitSerialPort();
-            LoadPorts();
-            InitClock();
-            InitLedTimer();
-            InitPollTimer();
+            InitializeUI();
         }
 
-        private void InitSerialPort()
+        private void InitializeUI()
         {
-            _serialPort = new SerialPort
-            {
-                Parity = Parity.None,
-                DataBits = 8,
-                StopBits = StopBits.One,
-                Encoding = Encoding.GetEncoding("GBK")
-            };
+            dgSlaveData.ItemsSource = slaveDataList;
 
-            _serialPort.DataReceived += SerialPort_DataReceived;
+            clockTimer.Interval = TimeSpan.FromSeconds(1);
+            clockTimer.Tick += delegate
+            {
+                txtClock.Text = DateTime.Now.ToString("HH:mm:ss");
+            };
+            clockTimer.Start();
+
+            pollTimer.Tick += PollTimer_Tick;
+
+            serialPort.DataReceived += SerialPort_DataReceived;
+            serialPort.ReadTimeout = 500;
+            serialPort.WriteTimeout = 500;
+
+            tglTempResolution.Content = "0.01 ℃/LSB";
+
+            SetLed(ledPort, Brushes.Gray);
+            SetLed(ledCalibrate, Brushes.Gray);
+            SetLed(ledSend, Brushes.Gray);
+            SetLed(ledReceive, Brushes.Gray);
+
+            txtPortStatus.Text = "未连接";
+            txtCalibrateStatus.Text = "待机";
+
+            RefreshPorts();
+            AppendLog("系统", "界面初始化完成");
         }
 
-        private void InitClock()
+        private void RefreshPorts()
         {
-            _clockTimer = new DispatcherTimer
-            {
-                Interval = TimeSpan.FromSeconds(1)
-            };
-            _clockTimer.Tick += (s, e) =>
-            {
-                txtClock.Text = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
-            };
-            _clockTimer.Start();
-        }
+            string oldPort = cmbPorts.SelectedItem == null ? "" : cmbPorts.SelectedItem.ToString();
 
-        private void InitLedTimer()
-        {
-            _ledResetTimer = new DispatcherTimer
-            {
-                Interval = TimeSpan.FromMilliseconds(300)
-            };
-            _ledResetTimer.Tick += (s, e) =>
-            {
-                if (_serialPort != null && _serialPort.IsOpen)
-                {
-                    ledSend.Fill = Brushes.Gray;
-                    ledReceive.Fill = Brushes.Gray;
-                }
-                _ledResetTimer.Stop();
-            };
-        }
-
-        private void InitPollTimer()
-        {
-            _pollTimer = new DispatcherTimer
-            {
-                Interval = TimeSpan.FromMilliseconds(500)
-            };
-
-            _pollTimer.Tick += (s, e) =>
-            {
-                try
-                {
-                    if (!_isPolling || _pollSlaveIds.Count == 0)
-                        return;
-
-                    if (_serialPort == null || !_serialPort.IsOpen)
-                    {
-                        StopPollingInternal("串口未打开，轮询已停止。");
-                        return;
-                    }
-
-                    if (_pollIndex >= _pollSlaveIds.Count)
-                        _pollIndex = 0;
-
-                    byte slaveId = _pollSlaveIds[_pollIndex];
-                    _pollIndex++;
-
-                    QuerySlave(slaveId, false);
-                }
-                catch (Exception ex)
-                {
-                    AppendLog("错误", "轮询异常：" + ex.Message);
-                }
-            };
-        }
-
-        private void LoadPorts()
-        {
             cmbPorts.Items.Clear();
-            var ports = SerialPort.GetPortNames().OrderBy(p => p).ToArray();
 
-            foreach (var port in ports)
+            string[] ports = SerialPort.GetPortNames();
+            foreach (string port in ports)
             {
                 cmbPorts.Items.Add(port);
             }
 
-            if (cmbPorts.Items.Count > 0)
+            if (!string.IsNullOrWhiteSpace(oldPort) && cmbPorts.Items.Contains(oldPort))
+            {
+                cmbPorts.SelectedItem = oldPort;
+            }
+            else if (cmbPorts.Items.Count > 0)
             {
                 cmbPorts.SelectedIndex = 0;
-            }
-        }
-
-        private void btnRefreshPorts_Click(object sender, RoutedEventArgs e)
-        {
-            LoadPorts();
-            AppendLog("系统", "串口列表已刷新。");
-        }
-
-        private void btnOpenClose_Click(object sender, RoutedEventArgs e)
-        {
-            try
-            {
-                if (!_serialPort.IsOpen)
-                {
-                    if (cmbPorts.SelectedItem == null)
-                    {
-                        MessageBox.Show("请选择串口号。", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
-                        return;
-                    }
-
-                    _serialPort.PortName = cmbPorts.SelectedItem.ToString();
-
-                    if (cmbBaudRate.SelectedItem is ComboBoxItem baudItem)
-                    {
-                        _serialPort.BaudRate = int.Parse(baudItem.Content.ToString());
-                    }
-                    else
-                    {
-                        _serialPort.BaudRate = 115200;
-                    }
-
-                    _serialPort.Open();
-
-                    btnOpenClose.Content = "关闭串口";
-                    btnStartCalibrate.IsEnabled = true;
-                    btnStopCalibrate.IsEnabled = true;
-                    btnQuerySlave.IsEnabled = true;
-                    btnSlaveMinus.IsEnabled = true;
-                    btnSlavePlus.IsEnabled = true;
-                    btnStartPolling.IsEnabled = true;
-                    btnStopPolling.IsEnabled = true;
-
-                    ledPort.Fill = Brushes.LimeGreen;
-                    txtPortStatus.Text = "已连接";
-                    txtPortStatus.Foreground = Brushes.LimeGreen;
-
-                    AppendLog("系统", $"串口 {_serialPort.PortName} 已打开，波特率 {_serialPort.BaudRate}。");
-                }
-                else
-                {
-                    StopPollingInternal("串口关闭，轮询已停止。");
-
-                    _serialPort.Close();
-
-                    lock (_bufferLock)
-                    {
-                        _receiveBuffer.Clear();
-                    }
-
-                    btnOpenClose.Content = "打开串口";
-                    btnStartCalibrate.IsEnabled = false;
-                    btnStopCalibrate.IsEnabled = false;
-                    btnQuerySlave.IsEnabled = false;
-                    btnSlaveMinus.IsEnabled = false;
-                    btnSlavePlus.IsEnabled = false;
-                    btnStartPolling.IsEnabled = false;
-                    btnStopPolling.IsEnabled = false;
-
-                    ledPort.Fill = Brushes.Gray;
-                    ledCalibrate.Fill = Brushes.Gray;
-                    ledSend.Fill = Brushes.Gray;
-                    ledReceive.Fill = Brushes.Gray;
-
-                    txtPortStatus.Text = "未连接";
-                    txtPortStatus.Foreground = Brushes.Gray;
-                    txtCalibrateStatus.Text = "待机";
-                    txtCalibrateStatus.Foreground = Brushes.Gray;
-
-                    AppendLog("系统", "串口已关闭。");
-                }
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show("串口操作失败：" + ex.Message, "错误", MessageBoxButton.OK, MessageBoxImage.Error);
-                AppendLog("错误", ex.Message);
-            }
-        }
-
-        private void btnSlaveMinus_Click(object sender, RoutedEventArgs e)
-        {
-            if (!TryGetSlaveId(out byte slaveId))
-                return;
-
-            int newId = slaveId - 1;
-            if (newId < 1) newId = 1;
-            txtSlaveId.Text = newId.ToString();
-        }
-
-        private void btnSlavePlus_Click(object sender, RoutedEventArgs e)
-        {
-            if (!TryGetSlaveId(out byte slaveId))
-                return;
-
-            int newId = slaveId + 1;
-            if (newId > 247) newId = 247;
-            txtSlaveId.Text = newId.ToString();
-        }
-
-        private void btnQuerySlave_Click(object sender, RoutedEventArgs e)
-        {
-            try
-            {
-                if (!TryGetSlaveId(out byte slaveId))
-                    return;
-
-                QuerySlave(slaveId, true);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show("问询失败：" + ex.Message, "错误", MessageBoxButton.OK, MessageBoxImage.Error);
-                AppendLog("错误", "问询失败：" + ex.Message);
-            }
-        }
-
-        private void btnStartPolling_Click(object sender, RoutedEventArgs e)
-        {
-            try
-            {
-                if (_serialPort == null || !_serialPort.IsOpen)
-                {
-                    MessageBox.Show("请先打开串口。", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
-                    return;
-                }
-
-                List<byte> ids = ParseSlaveIdList(txtSlaveList.Text);
-                if (ids.Count == 0)
-                {
-                    MessageBox.Show("请输入有效的从站列表，例如：1,2,3,5", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
-                    return;
-                }
-
-                if (!int.TryParse(txtPollInterval.Text.Trim(), out int intervalMs))
-                {
-                    MessageBox.Show("轮询间隔请输入数字。", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
-                    return;
-                }
-
-                if (intervalMs < 50)
-                {
-                    MessageBox.Show("轮询间隔建议不小于 50ms。", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
-                    return;
-                }
-
-                _pollSlaveIds.Clear();
-                _pollSlaveIds.AddRange(ids);
-                _pollIndex = 0;
-                _pollTimer.Interval = TimeSpan.FromMilliseconds(intervalMs);
-                _isPolling = true;
-                _pollTimer.Start();
-
-                AppendLog("系统", $"开始轮询从站：{string.Join(",", _pollSlaveIds)}，间隔={intervalMs}ms");
-            }
-            catch (Exception ex)
-            {
-                AppendLog("错误", "启动轮询失败：" + ex.Message);
-            }
-        }
-
-        private void btnStopPolling_Click(object sender, RoutedEventArgs e)
-        {
-            StopPollingInternal("用户已停止轮询。");
-        }
-
-        private void StopPollingInternal(string message)
-        {
-            _isPolling = false;
-            _pollTimer.Stop();
-            _pollSlaveIds.Clear();
-            _pollIndex = 0;
-
-            if (!string.IsNullOrWhiteSpace(message))
-            {
-                AppendLog("系统", message);
-            }
-        }
-
-        private List<byte> ParseSlaveIdList(string input)
-        {
-            var result = new List<byte>();
-
-            if (string.IsNullOrWhiteSpace(input))
-                return result;
-
-            string[] parts = input.Split(new[] { ',', '，', ';', '；', ' ' }, StringSplitOptions.RemoveEmptyEntries);
-
-            foreach (string part in parts)
-            {
-                if (byte.TryParse(part.Trim(), out byte id))
-                {
-                    if (id >= 1 && id <= 247 && !result.Contains(id))
-                    {
-                        result.Add(id);
-                    }
-                }
-            }
-
-            result.Sort();
-            return result;
-        }
-
-        private void btnStartCalibrate_Click(object sender, RoutedEventArgs e)
-        {
-            SendHexCommand("FF AA FF", "开始校准");
-            ledCalibrate.Fill = Brushes.DeepSkyBlue;
-            txtCalibrateStatus.Text = "校准中";
-            txtCalibrateStatus.Foreground = Brushes.DeepSkyBlue;
-        }
-
-        private void btnStopCalibrate_Click(object sender, RoutedEventArgs e)
-        {
-            SendHexCommand("AA FF AA", "停止校准");
-            ledCalibrate.Fill = Brushes.OrangeRed;
-            txtCalibrateStatus.Text = "已停止";
-            txtCalibrateStatus.Foreground = Brushes.OrangeRed;
-        }
-
-        private void btnClearLog_Click(object sender, RoutedEventArgs e)
-        {
-            txtReceiveArea.Clear();
-        }
-
-        private bool TryGetSlaveId(out byte slaveId)
-        {
-            slaveId = 0;
-
-            if (!byte.TryParse(txtSlaveId.Text.Trim(), out slaveId))
-            {
-                MessageBox.Show("从站地址请输入 1~247 的十进制数字。", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return false;
-            }
-
-            if (slaveId < 1 || slaveId > 247)
-            {
-                MessageBox.Show("从站地址范围应为 1~247。", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return false;
-            }
-
-            return true;
-        }
-
-        private void QuerySlave(byte slaveId, bool writeLog)
-        {
-            if (_serialPort == null || !_serialPort.IsOpen)
-            {
-                MessageBox.Show("请先打开串口。", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
-
-            byte[] frame = BuildQueryFrame(slaveId);
-            _serialPort.Write(frame, 0, frame.Length);
-
-            ledSend.Fill = Brushes.Cyan;
-            _ledResetTimer.Stop();
-            _ledResetTimer.Start();
-
-            if (writeLog)
-            {
-                AppendLog("发送", $"问询从站[{slaveId}] -> {BitConverter.ToString(frame).Replace("-", " ")}");
-            }
-        }
-
-        private byte[] BuildQueryFrame(byte slaveId)
-        {
-            byte[] cmd = new byte[8];
-            cmd[0] = slaveId;
-            cmd[1] = 0x03;
-            cmd[2] = 0x0B;
-            cmd[3] = 0xB8;
-            cmd[4] = 0x00;
-            cmd[5] = 0x08;
-
-            ushort crc = ComputeModbusCrc(cmd, 0, 6);
-            cmd[6] = (byte)(crc & 0xFF);
-            cmd[7] = (byte)((crc >> 8) & 0xFF);
-
-            return cmd;
-        }
-
-        private void SendHexCommand(string hex, string description)
-        {
-            try
-            {
-                if (_serialPort == null || !_serialPort.IsOpen)
-                {
-                    MessageBox.Show("请先打开串口。", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
-                    return;
-                }
-
-                byte[] data = HexStringToBytes(hex);
-                _serialPort.Write(data, 0, data.Length);
-
-                ledSend.Fill = Brushes.Cyan;
-                _ledResetTimer.Stop();
-                _ledResetTimer.Start();
-
-                AppendLog("发送", $"{description} -> {hex}");
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show("发送失败：" + ex.Message, "错误", MessageBoxButton.OK, MessageBoxImage.Error);
-                AppendLog("错误", "发送失败：" + ex.Message);
             }
         }
 
@@ -459,267 +202,172 @@ namespace WpfSerialTool
         {
             try
             {
-                int len = _serialPort.BytesToRead;
-                if (len <= 0)
-                    return;
-
-                byte[] buffer = new byte[len];
-                _serialPort.Read(buffer, 0, len);
-
-                lock (_bufferLock)
+                int bytesToRead = serialPort.BytesToRead;
+                if (bytesToRead <= 0)
                 {
-                    _receiveBuffer.AddRange(buffer);
-                    TryParseReceivedData();
+                    return;
                 }
+
+                byte[] buffer = new byte[bytesToRead];
+                int readCount = serialPort.Read(buffer, 0, bytesToRead);
+
+                if (readCount <= 0)
+                {
+                    return;
+                }
+
+                if (readCount != buffer.Length)
+                {
+                    Array.Resize(ref buffer, readCount);
+                }
+
+                string rawHex = ToHex(buffer);
+
+                Dispatcher.Invoke(delegate
+                {
+                    FlashLed(ledReceive, Brushes.LimeGreen);
+                    AppendLog("RX", "接收 " + readCount + " 字节: " + rawHex);
+
+                    rxCache.AddRange(buffer);
+                    ParseRxCache();
+                });
             }
             catch (Exception ex)
             {
-                Dispatcher.Invoke(() =>
+                Dispatcher.Invoke(delegate
                 {
-                    AppendLog("错误", "接收失败：" + ex.Message);
+                    AppendLog("错误", "串口接收失败: " + ex.Message);
                 });
             }
         }
 
-        private void TryParseReceivedData()
+        private void ParseRxCache()
         {
-            while (true)
+            while (rxCache.Count >= SlaveFrameLength)
             {
-                if (_receiveBuffer.Count == 0)
+                int headIndex = rxCache.IndexOf(SlaveFrameHead);
+
+                if (headIndex < 0)
+                {
+                    rxCache.Clear();
                     return;
-
-                // 协议帧：0xFA开头
-                if (_receiveBuffer[0] == 0xFA)
-                {
-                    if (_receiveBuffer.Count < FixedResponseLength)
-                        return;
-
-                    byte[] frame = _receiveBuffer.Take(FixedResponseLength).ToArray();
-
-                    if (IsValidResponseFrame(frame, out string error))
-                    {
-                        _receiveBuffer.RemoveRange(0, FixedResponseLength);
-
-                        Dispatcher.Invoke(() =>
-                        {
-                            ledReceive.Fill = Brushes.LawnGreen;
-                            _ledResetTimer.Stop();
-                            _ledResetTimer.Start();
-
-                            string rawHex = BitConverter.ToString(frame).Replace("-", " ");
-                            AppendLog("接收", rawHex);
-                            ParseAndShowSlaveData(frame, rawHex);
-                        });
-
-                        continue;
-                    }
-                    else
-                    {
-                        // 如果是0xFA开头但不是有效22字节帧，尝试当成文本
-                        string text = TryDecodeBufferAsText(_receiveBuffer.ToArray());
-                        if (!string.IsNullOrWhiteSpace(text))
-                        {
-                            _receiveBuffer.Clear();
-
-                            Dispatcher.Invoke(() =>
-                            {
-                                ledReceive.Fill = Brushes.LawnGreen;
-                                _ledResetTimer.Stop();
-                                _ledResetTimer.Start();
-
-                                AppendLog("接收文本", text);
-                            });
-
-                            return;
-                        }
-
-                        byte bad = _receiveBuffer[0];
-                        _receiveBuffer.RemoveAt(0);
-
-                        Dispatcher.Invoke(() =>
-                        {
-                            AppendLog("错误", $"收到疑似无效帧，已丢弃字节 0x{bad:X2}，原因：{error}");
-                        });
-
-                        continue;
-                    }
                 }
 
-                // 非0xFA开头，当文本处理
-                byte[] textBytes = _receiveBuffer.ToArray();
-                _receiveBuffer.Clear();
-
-                string receivedText = TryDecodeBufferAsText(textBytes);
-                string hexText = BitConverter.ToString(textBytes).Replace("-", " ");
-
-                Dispatcher.Invoke(() =>
+                if (headIndex > 0)
                 {
-                    ledReceive.Fill = Brushes.LawnGreen;
-                    _ledResetTimer.Stop();
-                    _ledResetTimer.Start();
-
-                    if (!string.IsNullOrWhiteSpace(receivedText))
-                    {
-                        AppendLog("接收文本", receivedText);
-                    }
-                    else
-                    {
-                        AppendLog("接收", hexText);
-                    }
-                });
-
-                return;
-            }
-        }
-
-        private string TryDecodeBufferAsText(byte[] data)
-        {
-            if (data == null || data.Length == 0)
-                return string.Empty;
-
-            try
-            {
-                string text = _serialPort.Encoding.GetString(data).Trim('\0', '\r', '\n', ' ');
-                return text;
-            }
-            catch
-            {
-                return string.Empty;
-            }
-        }
-
-        private bool IsValidResponseFrame(byte[] frame, out string error)
-        {
-            error = string.Empty;
-
-            if (frame == null || frame.Length != FixedResponseLength)
-            {
-                error = "帧长度不正确。";
-                return false;
-            }
-
-            if (frame[0] != 0xFA)
-            {
-                error = "帧头不是 0xFA。";
-                return false;
-            }
-
-            if (frame[2] != 0x03)
-            {
-                error = $"功能码错误，实际为 0x{frame[2]:X2}";
-                return false;
-            }
-
-            if (frame[3] != 0x10)
-            {
-                error = $"数据长度标记错误，实际为 0x{frame[3]:X2}";
-                return false;
-            }
-
-            ushort calcCrc = ComputeModbusCrc(frame, 0, frame.Length - 2);
-            ushort recvCrc = (ushort)(frame[frame.Length - 2] | (frame[frame.Length - 1] << 8));
-
-            if (calcCrc != recvCrc)
-            {
-                error = $"CRC错误，计算值=0x{calcCrc:X4}，接收值=0x{recvCrc:X4}";
-                return false;
-            }
-
-            return true;
-        }
-
-        private ushort ComputeModbusCrc(byte[] data, int start, int length)
-        {
-            ushort crc = 0xFFFF;
-
-            for (int i = start; i < start + length; i++)
-            {
-                crc ^= data[i];
-
-                for (int j = 0; j < 8; j++)
-                {
-                    if ((crc & 0x0001) != 0)
-                    {
-                        crc >>= 1;
-                        crc ^= 0xA001;
-                    }
-                    else
-                    {
-                        crc >>= 1;
-                    }
+                    rxCache.RemoveRange(0, headIndex);
                 }
+
+                if (rxCache.Count < SlaveFrameLength)
+                {
+                    return;
+                }
+
+                byte[] frame = rxCache.Take(SlaveFrameLength).ToArray();
+
+                if (frame[0] != 0xFA || frame[2] != 0x03 || frame[3] != 0x10)
+                {
+                    rxCache.RemoveAt(0);
+                    continue;
+                }
+
+                if (!CheckFrameCrc(frame))
+                {
+                    AppendLog("错误", "CRC校验失败，丢弃当前帧: " + ToHex(frame));
+                    rxCache.RemoveAt(0);
+                    continue;
+                }
+
+                rxCache.RemoveRange(0, SlaveFrameLength);
+                ParseAndShowSlaveData(frame, ToHex(frame));
+            }
+        }
+
+        private bool CheckFrameCrc(byte[] frame)
+        {
+            if (frame == null || frame.Length < SlaveFrameLength)
+            {
+                return false;
             }
 
-            return crc;
+            ushort crc = ModbusCrc16(frame, 20);
+            byte crcHigh = (byte)(crc >> 8);
+            byte crcLow = (byte)(crc & 0xFF);
+
+            return frame[20] == crcHigh && frame[21] == crcLow;
         }
 
         private short ReadInt16BigEndian(byte high, byte low)
         {
-            return (short)((high << 8) | low);
+            return unchecked((short)((high << 8) | low));
         }
 
         private ushort ReadUInt16BigEndian(byte high, byte low)
         {
-            return (ushort)((high << 8) | low);
+            return unchecked((ushort)((high << 8) | low));
         }
 
-        private double CombineIntegerFraction(short intPart, ushort fracPart)
+        private double CombineSignedFixed3(short integerPart, ushort fractionalPart)
         {
-            // 先取绝对值，处理负数
-            double absValue = Math.Abs(intPart);
-            double fraction = fracPart;
+            int raw12 = fractionalPart & 0x0FFF;
 
-            int decimalPlaces = 0; // 小数位数
-
-            // 判断小数位数，根据fracPart的大小来决定
-            if (fracPart < 10)
+            if ((raw12 & 0x0800) != 0)
             {
-                decimalPlaces = 1;  // 1 位小数
-                fraction /= 10;     // 除以 10
-            }
-            else if (fracPart < 100)
-            {
-                decimalPlaces = 2;  // 2 位小数
-                fraction /= 100;    // 除以 100
-            }
-            else if (fracPart < 1000)
-            {
-                decimalPlaces = 3;  // 3 位小数
-                fraction /= 1000;   // 除以 1000
-            }
-            else if (fracPart < 10000)
-            {
-                decimalPlaces = 4;  // 4 位小数
-                fraction /= 10000;  // 除以 10000
-            }
-            else if (fracPart < 100000)
-            {
-                decimalPlaces = 5;  // 5 位小数
-                fraction /= 100000;  // 除以 100000
-            }
-            else
-            {
-                // 如果fracPart大于9999，视为无效，抛出异常
-                throw new ArgumentException("Invalid fraction part: exceeds maximum value.");
+                raw12 -= 0x1000;
             }
 
-            // 计算最终值
-            double result = absValue + fraction;
+            return integerPart + raw12 / 1000.0;
+        }
 
-            // 如果原始的intPart是负数，则返回负值
-            if (intPart < 0)
+        private double CombineUnsignedFixed3(short integerPart, ushort fractionalPart)
+        {
+            return integerPart + fractionalPart / 1000.0;
+        }
+
+        private double GetTemperatureRegisterScale()
+        {
+            if (tglTempResolution.IsChecked == true)
             {
-                result = -result;
+                return 0.01;
             }
 
-            // 使用Math.Round进行四舍五入，确保精度正确
-            return Math.Round(result, decimalPlaces);
+            return 0.1;
+        }
+
+        private double DecodeTemperatureFromReg16ToReg19(short tempInt, ushort tempFrac)
+        {
+            double transmittedTemperature = CombineUnsignedFixed3(tempInt, tempFrac);
+
+            // 判断：如果传上来的值小于 200，说明是正常温度偏移值
+            // 直接减 100 显示，不做反推
+            if (transmittedTemperature < 200.0)
+            {
+                return transmittedTemperature - 100.0;
+            }
+
+            // 否则说明是负温度被转换成超大整型后的值
+            // 按原来的逻辑反推真实温度
+            double scale = GetTemperatureRegisterScale();
+
+            int rawAsUnsignedInt = (int)Math.Round(
+                (transmittedTemperature - 100.0) / scale,
+                MidpointRounding.AwayFromZero);
+
+            ushort rawRegister = unchecked((ushort)rawAsUnsignedInt);
+            short rawSigned = unchecked((short)rawRegister);
+
+            return rawSigned * scale;
         }
 
         private void ParseAndShowSlaveData(byte[] frame, string rawHex)
         {
             try
             {
+                if (frame == null || frame.Length < SlaveFrameLength)
+                {
+                    return;
+                }
+
                 byte slaveId = frame[1];
 
                 short rollInt = ReadInt16BigEndian(frame[4], frame[5]);
@@ -734,103 +382,552 @@ namespace WpfSerialTool
                 short tempInt = ReadInt16BigEndian(frame[16], frame[17]);
                 ushort tempFrac = ReadUInt16BigEndian(frame[18], frame[19]);
 
-                double roll = CombineIntegerFraction(rollInt, rollFrac);
-                double pitch = CombineIntegerFraction(pitchInt, pitchFrac);
-                double yaw = CombineIntegerFraction(yawInt, yawFrac);
-                double temperature = CombineIntegerFraction(tempInt, tempFrac)-100.0;
+                double roll = CombineSignedFixed3(rollInt, rollFrac);
+                double pitch = CombineSignedFixed3(pitchInt, pitchFrac);
+                double yaw = CombineSignedFixed3(yawInt, yawFrac);
+                double temperature = DecodeTemperatureFromReg16ToReg19(tempInt, tempFrac);
 
-                AppendLog("解析",
-                    $"从站[{slaveId}] -> 横滚角={roll:F4}°, 俯仰角={pitch:F4}°, 航向角={yaw:F4}°, 温度={temperature:F4}℃");
+                int digits = GetTemperatureRegisterScale() == 0.01 ? 2 : 1;
+
+                AppendLog(
+                    "解析",
+                    "从站[" + slaveId + "] -> 横滚=" + roll.ToString("F3") +
+                    "° 俯仰=" + pitch.ToString("F3") +
+                    "° 航向=" + yaw.ToString("F3") +
+                    "° 温度=" + Math.Round(
+                                        temperature,
+                                        digits,
+                                        MidpointRounding.AwayFromZero
+                                    ).ToString("F3") + "℃");
 
                 UpdateSlaveDataGrid(slaveId, roll, pitch, yaw, temperature, rawHex);
             }
             catch (Exception ex)
             {
-                AppendLog("错误", "数据解析失败：" + ex.Message);
+                AppendLog("错误", "数据解析失败: " + ex.Message);
             }
         }
 
-        private void UpdateSlaveDataGrid(byte slaveId, double roll, double pitch, double yaw, double temperature, string rawHex)
+        private void UpdateSlaveDataGrid(int slaveId, double roll, double pitch, double yaw, double temperature, string rawHex)
         {
-            var item = SlaveDataList.FirstOrDefault(x => x.SlaveId == slaveId);
-            string now = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+            int digits = GetTemperatureRegisterScale() == 0.01 ? 2 : 1;
+            SlaveData existing = slaveDataList.FirstOrDefault(s => s.SlaveId == slaveId);
 
-            if (item == null)
+            if (existing != null)
             {
-                SlaveDataList.Add(new SlaveDataModel
-                {
-                    SlaveId = slaveId,
-                    Roll = roll,
-                    Pitch = pitch,
-                    Yaw = yaw,
-                    Temperature = temperature,
-                    UpdateTime = now,
-                    RawHex = rawHex
-                });
-
-                SortSlaveDataGrid();
+                existing.RollDisplay = roll.ToString("F3");
+                existing.PitchDisplay = pitch.ToString("F3");
+                existing.YawDisplay = yaw.ToString("F3");
+                existing.TemperatureDisplay = Math.Round(
+                                                    temperature,
+                                                    digits,
+                                                    MidpointRounding.AwayFromZero
+                                                ).ToString("F3");
+                existing.UpdateTime = DateTime.Now.ToString("HH:mm:ss");
+                existing.RawHex = rawHex;
             }
             else
             {
-                item.Roll = roll;
-                item.Pitch = pitch;
-                item.Yaw = yaw;
-                item.Temperature = temperature;
-                item.UpdateTime = now;
-                item.RawHex = rawHex;
-            }
-        }
-
-        private void SortSlaveDataGrid()
-        {
-            var sorted = SlaveDataList.OrderBy(x => x.SlaveId).ToList();
-            SlaveDataList.Clear();
-            foreach (var item in sorted)
-            {
-                SlaveDataList.Add(item);
+                slaveDataList.Add(new SlaveData
+                {
+                    SlaveId = slaveId,
+                    RollDisplay = roll.ToString("F3"),
+                    PitchDisplay = pitch.ToString("F3"),
+                    YawDisplay = yaw.ToString("F3"),
+                    TemperatureDisplay = Math.Round(
+                                                    temperature,
+                                                    digits,
+                                                    MidpointRounding.AwayFromZero
+                                                ).ToString("F3"),
+                    UpdateTime = DateTime.Now.ToString("HH:mm:ss"),
+                    RawHex = rawHex
+                });
             }
         }
 
         private void AppendLog(string type, string message)
         {
-            txtReceiveArea.AppendText($"[{DateTime.Now:HH:mm:ss}] [{type}] {message}{Environment.NewLine}");
+            if (txtReceiveArea == null)
+            {
+                return;
+            }
+
+            string log = "[" + DateTime.Now.ToString("HH:mm:ss") + "] [" + type + "] " + message + Environment.NewLine;
+            txtReceiveArea.AppendText(log);
             txtReceiveArea.ScrollToEnd();
         }
 
-        private byte[] HexStringToBytes(string hex)
+        private string ToHex(byte[] data)
         {
-            hex = hex.Replace(" ", "");
-
-            if (hex.Length % 2 != 0)
+            if (data == null || data.Length == 0)
             {
-                throw new Exception("HEX字符串长度不正确。");
+                return "";
             }
 
-            byte[] bytes = new byte[hex.Length / 2];
+            return BitConverter.ToString(data).Replace("-", " ");
+        }
 
-            for (int i = 0; i < bytes.Length; i++)
+        private string GetComboBoxText(ComboBox comboBox)
+        {
+            if (comboBox.SelectedItem is ComboBoxItem)
             {
-                bytes[i] = Convert.ToByte(hex.Substring(i * 2, 2), 16);
+                ComboBoxItem item = (ComboBoxItem)comboBox.SelectedItem;
+                return item.Content == null ? "" : item.Content.ToString();
             }
 
-            return bytes;
+            if (comboBox.SelectedItem != null)
+            {
+                return comboBox.SelectedItem.ToString();
+            }
+
+            return comboBox.Text;
+        }
+
+        private bool TryGetSlaveId(out byte slaveId)
+        {
+            slaveId = 0;
+
+            int id;
+            if (!int.TryParse(txtSlaveId.Text.Trim(), out id))
+            {
+                AppendLog("错误", "从站地址不是有效数字");
+                return false;
+            }
+
+            if (id < 1 || id > 247)
+            {
+                AppendLog("错误", "从站地址范围应为 1 到 247");
+                return false;
+            }
+
+            slaveId = (byte)id;
+            return true;
+        }
+
+        private bool TryGetPollInterval(out int interval)
+        {
+            interval = 500;
+
+            if (!int.TryParse(txtPollInterval.Text.Trim(), out interval))
+            {
+                AppendLog("错误", "轮询间隔不是有效数字");
+                return false;
+            }
+
+            if (interval < 100)
+            {
+                AppendLog("错误", "轮询间隔不能小于 100 ms");
+                return false;
+            }
+
+            return true;
+        }
+
+        private List<byte> ParseSlaveList()
+        {
+            List<byte> result = new List<byte>();
+
+            string text = txtSlaveList.Text.Trim();
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                AppendLog("错误", "从站列表为空");
+                return result;
+            }
+
+            char[] separators = new char[] { ',', '，', ';', '；', ' ', '\t', '\r', '\n' };
+            string[] parts = text.Split(separators, StringSplitOptions.RemoveEmptyEntries);
+
+            foreach (string part in parts)
+            {
+                int id;
+                if (!int.TryParse(part.Trim(), out id))
+                {
+                    AppendLog("错误", "从站列表包含无效地址: " + part);
+                    continue;
+                }
+
+                if (id < 1 || id > 247)
+                {
+                    AppendLog("错误", "从站地址超出范围: " + id);
+                    continue;
+                }
+
+                byte slaveId = (byte)id;
+                if (!result.Contains(slaveId))
+                {
+                    result.Add(slaveId);
+                }
+            }
+
+            return result;
+        }
+
+        private void SendBytes(byte[] data, string description)
+        {
+            if (!serialPort.IsOpen)
+            {
+                AppendLog("错误", "串口未打开");
+                return;
+            }
+
+            try
+            {
+                serialPort.Write(data, 0, data.Length);
+                FlashLed(ledSend, Brushes.DeepSkyBlue);
+                AppendLog("TX", description + ": " + ToHex(data));
+            }
+            catch (Exception ex)
+            {
+                AppendLog("错误", "发送失败: " + ex.Message);
+            }
+        }
+
+        private byte[] BuildQueryCommand(byte slaveId)
+        {
+            byte[] cmd = new byte[8];
+
+            cmd[0] = slaveId;
+            cmd[1] = 0x03;
+            cmd[2] = 0x0B;
+            cmd[3] = 0x00;
+            cmd[4] = 0x00;
+            cmd[5] = 0x08;
+
+            ushort crc = ModbusCrc16(cmd, 6);
+            cmd[6] = (byte)(crc >> 8);
+            cmd[7] = (byte)(crc & 0xFF);
+
+            return cmd;
+        }
+
+        private ushort ModbusCrc16(byte[] data, int length)
+        {
+            ushort crc = 0xFFFF;
+
+            for (int i = 0; i < length; i++)
+            {
+                crc ^= data[i];
+
+                for (int j = 0; j < 8; j++)
+                {
+                    if ((crc & 0x0001) != 0)
+                    {
+                        crc = (ushort)((crc >> 1) ^ 0xA001);
+                    }
+                    else
+                    {
+                        crc >>= 1;
+                    }
+                }
+            }
+
+            return unchecked((ushort)(((crc & 0x00FF) << 8) | ((crc >> 8) & 0x00FF)));
+        }
+
+        private void SetLed(Ellipse led, Brush brush)
+        {
+            if (led != null)
+            {
+                led.Fill = brush;
+            }
+        }
+
+        private void FlashLed(Ellipse led, Brush flashBrush)
+        {
+            if (led == null)
+            {
+                return;
+            }
+
+            led.Fill = flashBrush;
+
+            DispatcherTimer timer = new DispatcherTimer();
+            timer.Interval = TimeSpan.FromMilliseconds(180);
+            timer.Tick += delegate
+            {
+                timer.Stop();
+                led.Fill = Brushes.Gray;
+            };
+            timer.Start();
+        }
+
+        private void SetPortOpenedUi(bool opened)
+        {
+            if (opened)
+            {
+                btnOpenClose.Content = "关闭串口";
+
+                btnQuerySlave.IsEnabled = true;
+                btnSlaveMinus.IsEnabled = true;
+                btnSlavePlus.IsEnabled = true;
+                btnStartCalibrate.IsEnabled = true;
+                btnStopCalibrate.IsEnabled = true;
+                btnStartPolling.IsEnabled = true;
+                btnStopPolling.IsEnabled = false;
+
+                cmbPorts.IsEnabled = false;
+                cmbBaudRate.IsEnabled = false;
+
+                txtPortStatus.Text = "已连接";
+                txtPortStatus.Foreground = Brushes.LimeGreen;
+                SetLed(ledPort, Brushes.LimeGreen);
+            }
+            else
+            {
+                btnOpenClose.Content = "打开串口";
+
+                btnQuerySlave.IsEnabled = false;
+                btnSlaveMinus.IsEnabled = false;
+                btnSlavePlus.IsEnabled = false;
+                btnStartCalibrate.IsEnabled = false;
+                btnStopCalibrate.IsEnabled = false;
+                btnStartPolling.IsEnabled = false;
+                btnStopPolling.IsEnabled = false;
+
+                cmbPorts.IsEnabled = true;
+                cmbBaudRate.IsEnabled = true;
+
+                txtPortStatus.Text = "未连接";
+                txtPortStatus.Foreground = Brushes.Gray;
+                SetLed(ledPort, Brushes.Gray);
+
+                txtCalibrateStatus.Text = "待机";
+                txtCalibrateStatus.Foreground = Brushes.Gray;
+                SetLed(ledCalibrate, Brushes.Gray);
+            }
+        }
+
+        private void tglTempResolution_Checked(object sender, RoutedEventArgs e)
+        {
+            if (tglTempResolution != null)
+            {
+                tglTempResolution.Content = "0.01 ℃/LSB";
+            }
+
+            if (IsLoaded)
+            {
+                AppendLog("系统", "温度转换倍率切换为 0.01 ℃/LSB");
+            }
+        }
+
+        private void tglTempResolution_Unchecked(object sender, RoutedEventArgs e)
+        {
+            if (tglTempResolution != null)
+            {
+                tglTempResolution.Content = "0.1 ℃/LSB";
+            }
+
+            if (IsLoaded)
+            {
+                AppendLog("系统", "温度转换倍率切换为 0.1 ℃/LSB");
+            }
+        }
+
+        private void btnRefreshPorts_Click(object sender, RoutedEventArgs e)
+        {
+            RefreshPorts();
+            AppendLog("系统", "串口列表已刷新");
+        }
+
+        private void btnOpenClose_Click(object sender, RoutedEventArgs e)
+        {
+            if (!serialPort.IsOpen)
+            {
+                try
+                {
+                    string portName = cmbPorts.SelectedItem == null ? "" : cmbPorts.SelectedItem.ToString();
+                    string baudText = GetComboBoxText(cmbBaudRate);
+
+                    if (string.IsNullOrWhiteSpace(portName))
+                    {
+                        AppendLog("错误", "未选择串口");
+                        return;
+                    }
+
+                    int baudRate;
+                    if (!int.TryParse(baudText, out baudRate))
+                    {
+                        AppendLog("错误", "波特率无效");
+                        return;
+                    }
+
+                    serialPort.PortName = portName;
+                    serialPort.BaudRate = baudRate;
+                    serialPort.DataBits = 8;
+                    serialPort.StopBits = StopBits.One;
+                    serialPort.Parity = Parity.None;
+                    serialPort.Handshake = Handshake.None;
+
+                    serialPort.Open();
+
+                    rxCache.Clear();
+                    SetPortOpenedUi(true);
+
+                    AppendLog("系统", "串口已打开: " + portName + ", " + baudRate + ", 8N1");
+                }
+                catch (Exception ex)
+                {
+                    AppendLog("错误", "打开串口失败: " + ex.Message);
+                }
+            }
+            else
+            {
+                try
+                {
+                    pollTimer.Stop();
+                    isPolling = false;
+
+                    serialPort.Close();
+
+                    rxCache.Clear();
+                    SetPortOpenedUi(false);
+
+                    AppendLog("系统", "串口已关闭");
+                }
+                catch (Exception ex)
+                {
+                    AppendLog("错误", "关闭串口失败: " + ex.Message);
+                }
+            }
+        }
+
+        private void btnQuerySlave_Click(object sender, RoutedEventArgs e)
+        {
+            byte slaveId;
+            if (!TryGetSlaveId(out slaveId))
+            {
+                return;
+            }
+
+            byte[] cmd = BuildQueryCommand(slaveId);
+            SendBytes(cmd, "发送单站问询命令");
+        }
+
+        private void btnStartCalibrate_Click(object sender, RoutedEventArgs e)
+        {
+            byte[] cmd = new byte[] { 0xFF, 0xAA, 0xFF };
+            SendBytes(cmd, "发送开始校准命令");
+
+            txtCalibrateStatus.Text = "校准中";
+            txtCalibrateStatus.Foreground = Brushes.Orange;
+            SetLed(ledCalibrate, Brushes.Orange);
+        }
+
+        private void btnStopCalibrate_Click(object sender, RoutedEventArgs e)
+        {
+            byte[] cmd = new byte[] { 0xAA, 0xFF, 0xFF };
+            SendBytes(cmd, "发送停止校准命令");
+
+            txtCalibrateStatus.Text = "待机";
+            txtCalibrateStatus.Foreground = Brushes.Gray;
+            SetLed(ledCalibrate, Brushes.Gray);
+        }
+
+        private void btnSlaveMinus_Click(object sender, RoutedEventArgs e)
+        {
+            int id;
+            if (int.TryParse(txtSlaveId.Text.Trim(), out id) && id > 1)
+            {
+                txtSlaveId.Text = (id - 1).ToString();
+            }
+        }
+
+        private void btnSlavePlus_Click(object sender, RoutedEventArgs e)
+        {
+            int id;
+            if (int.TryParse(txtSlaveId.Text.Trim(), out id) && id < 247)
+            {
+                txtSlaveId.Text = (id + 1).ToString();
+            }
+        }
+
+        private void btnClearLog_Click(object sender, RoutedEventArgs e)
+        {
+            txtReceiveArea.Clear();
+        }
+
+        private void btnStartPolling_Click(object sender, RoutedEventArgs e)
+        {
+            if (!serialPort.IsOpen)
+            {
+                AppendLog("错误", "串口未打开");
+                return;
+            }
+
+            int interval;
+            if (!TryGetPollInterval(out interval))
+            {
+                return;
+            }
+
+            List<byte> slaveList = ParseSlaveList();
+            if (slaveList.Count == 0)
+            {
+                AppendLog("错误", "没有有效的轮询从站地址");
+                return;
+            }
+
+            pollIndex = 0;
+            pollTimer.Interval = TimeSpan.FromMilliseconds(interval);
+            pollTimer.Start();
+
+            isPolling = true;
+            btnStartPolling.IsEnabled = false;
+            btnStopPolling.IsEnabled = true;
+
+            AppendLog("系统", "开始批量轮询，间隔 " + interval + " ms，从站数量 " + slaveList.Count);
+        }
+
+        private void btnStopPolling_Click(object sender, RoutedEventArgs e)
+        {
+            pollTimer.Stop();
+
+            isPolling = false;
+            btnStartPolling.IsEnabled = serialPort.IsOpen;
+            btnStopPolling.IsEnabled = false;
+
+            AppendLog("系统", "停止批量轮询");
+        }
+
+        private void PollTimer_Tick(object sender, EventArgs e)
+        {
+            if (!serialPort.IsOpen)
+            {
+                pollTimer.Stop();
+                isPolling = false;
+                btnStartPolling.IsEnabled = false;
+                btnStopPolling.IsEnabled = false;
+                AppendLog("错误", "串口已关闭，轮询停止");
+                return;
+            }
+
+            List<byte> slaveList = ParseSlaveList();
+            if (slaveList.Count == 0)
+            {
+                return;
+            }
+
+            if (pollIndex >= slaveList.Count)
+            {
+                pollIndex = 0;
+            }
+
+            byte slaveId = slaveList[pollIndex];
+            pollIndex++;
+
+            byte[] cmd = BuildQueryCommand(slaveId);
+            SendBytes(cmd, "轮询从站[" + slaveId + "]");
         }
 
         protected override void OnClosed(EventArgs e)
         {
             try
             {
-                _clockTimer?.Stop();
-                _ledResetTimer?.Stop();
-                _pollTimer?.Stop();
+                pollTimer.Stop();
 
-                if (_serialPort != null)
+                if (serialPort.IsOpen)
                 {
-                    if (_serialPort.IsOpen)
-                        _serialPort.Close();
-
-                    _serialPort.DataReceived -= SerialPort_DataReceived;
-                    _serialPort.Dispose();
+                    serialPort.Close();
                 }
             }
             catch
@@ -838,103 +935,6 @@ namespace WpfSerialTool
             }
 
             base.OnClosed(e);
-        }
-    }
-
-    public class SlaveDataModel : INotifyPropertyChanged
-    {
-        private byte _slaveId;
-        private double _roll;
-        private double _pitch;
-        private double _yaw;
-        private double _temperature;
-        private string _updateTime;
-        private string _rawHex;
-
-        public byte SlaveId
-        {
-            get => _slaveId;
-            set
-            {
-                _slaveId = value;
-                OnPropertyChanged();
-            }
-        }
-
-        public double Roll
-        {
-            get => _roll;
-            set
-            {
-                _roll = value;
-                OnPropertyChanged();
-                OnPropertyChanged(nameof(RollDisplay));
-            }
-        }
-
-        public double Pitch
-        {
-            get => _pitch;
-            set
-            {
-                _pitch = value;
-                OnPropertyChanged();
-                OnPropertyChanged(nameof(PitchDisplay));
-            }
-        }
-
-        public double Yaw
-        {
-            get => _yaw;
-            set
-            {
-                _yaw = value;
-                OnPropertyChanged();
-                OnPropertyChanged(nameof(YawDisplay));
-            }
-        }
-
-        public double Temperature
-        {
-            get => _temperature;
-            set
-            {
-                _temperature = value;
-                OnPropertyChanged();
-                OnPropertyChanged(nameof(TemperatureDisplay));
-            }
-        }
-
-        public string UpdateTime
-        {
-            get => _updateTime;
-            set
-            {
-                _updateTime = value;
-                OnPropertyChanged();
-            }
-        }
-
-        public string RawHex
-        {
-            get => _rawHex;
-            set
-            {
-                _rawHex = value;
-                OnPropertyChanged();
-            }
-        }
-
-        public string RollDisplay => Roll.ToString("F4", CultureInfo.InvariantCulture);
-        public string PitchDisplay => Pitch.ToString("F4", CultureInfo.InvariantCulture);
-        public string YawDisplay => Yaw.ToString("F4", CultureInfo.InvariantCulture);
-        public string TemperatureDisplay => Temperature.ToString("F4", CultureInfo.InvariantCulture);
-
-        public event PropertyChangedEventHandler PropertyChanged;
-
-        protected void OnPropertyChanged([CallerMemberName] string propertyName = null)
-        {
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
         }
     }
 }
