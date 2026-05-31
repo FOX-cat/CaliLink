@@ -140,7 +140,6 @@
             <Setter Property="CellStyle" Value="{StaticResource DarkDataGridCellStyle}"/>
         </Style>
 
-        <!-- 顶部温度转换小切换开关样式 -->
         <Style x:Key="TempToggleButtonStyle" TargetType="ToggleButton">
             <Setter Property="Foreground" Value="White"/>
             <Setter Property="FontSize" Value="12"/>
@@ -187,7 +186,6 @@
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <!-- 顶部标题 + 状态监视 + 温度转换 + 时钟 -->
         <Border Grid.Row="0"
                 CornerRadius="14"
                 Background="#111827"
@@ -201,7 +199,6 @@
                     <ColumnDefinition Width="180"/>
                 </Grid.ColumnDefinitions>
 
-                <!-- 左侧标题 -->
                 <StackPanel Orientation="Vertical" VerticalAlignment="Center">
                     <TextBlock Text="调试控制台"
                                Foreground="White"
@@ -212,7 +209,6 @@
                                FontSize="13"/>
                 </StackPanel>
 
-                <!-- 中间状态监视 -->
                 <Border Grid.Column="1"
                         Margin="10,10,10,10"
                         Padding="12,8"
@@ -233,7 +229,6 @@
                             <ColumnDefinition Width="42"/>
                         </Grid.ColumnDefinitions>
 
-                        <!-- 串口 -->
                         <Ellipse x:Name="ledPort"
                                  Grid.Column="0"
                                  Width="14"
@@ -251,7 +246,6 @@
                                        FontSize="11"/>
                         </StackPanel>
 
-                        <!-- 校准 -->
                         <Ellipse x:Name="ledCalibrate"
                                  Grid.Column="2"
                                  Width="14"
@@ -269,7 +263,6 @@
                                        FontSize="11"/>
                         </StackPanel>
 
-                        <!-- TX -->
                         <Ellipse x:Name="ledSend"
                                  Grid.Column="4"
                                  Width="14"
@@ -283,7 +276,6 @@
                                    FontSize="12"
                                    VerticalAlignment="Center"/>
 
-                        <!-- RX -->
                         <Ellipse x:Name="ledReceive"
                                  Grid.Column="6"
                                  Width="14"
@@ -299,7 +291,6 @@
                     </Grid>
                 </Border>
 
-                <!-- 顶部温度转换开关，只新增这一块 -->
                 <Border Grid.Column="2"
                         Margin="4,10,4,10"
                         Padding="10,8"
@@ -326,7 +317,6 @@
                     </StackPanel>
                 </Border>
 
-                <!-- 右侧时钟 -->
                 <TextBlock x:Name="txtClock"
                            Grid.Column="3"
                            HorizontalAlignment="Right"
@@ -342,7 +332,6 @@
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
 
-            <!-- 左侧控制区-->
             <StackPanel>
                 <Border Style="{StaticResource CardBorderStyle}">
                     <StackPanel>
@@ -479,7 +468,6 @@
                 </Border>
             </StackPanel>
 
-            <!-- 右侧显示区 -->
             <Grid Grid.Column="1">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="340"/>
@@ -508,6 +496,8 @@
                                 <DataGridTextColumn Header="横滚角(°)" Binding="{Binding RollDisplay}" Width="110"/>
                                 <DataGridTextColumn Header="俯仰角(°)" Binding="{Binding PitchDisplay}" Width="110"/>
                                 <DataGridTextColumn Header="航向角(°)" Binding="{Binding YawDisplay}" Width="110"/>
+                                <DataGridTextColumn Header="倾角(°)" Binding="{Binding TiltDisplay}" Width="110"/>
+                                <DataGridTextColumn Header="状态" Binding="{Binding Status}" Width="90"/>
                                 <DataGridTextColumn Header="温度(℃)" Binding="{Binding TemperatureDisplay}" Width="110"/>
                                 <DataGridTextColumn Header="更新时间" Binding="{Binding UpdateTime}" Width="160"/>
 

@@ -18,6 +18,8 @@ namespace WpfSerialTool
         private string rollDisplay = "0.000";
         private string pitchDisplay = "0.000";
         private string yawDisplay = "0.000";
+        private string tiltDisplay = "0.000";
+        private string status = "垂直";
         private string temperatureDisplay = "0.000";
         private string updateTime = "";
         private string rawHex = "";
@@ -70,6 +72,32 @@ namespace WpfSerialTool
                 {
                     yawDisplay = value;
                     OnPropertyChanged(nameof(YawDisplay));
+                }
+            }
+        }
+
+        public string TiltDisplay
+        {
+            get { return tiltDisplay; }
+            set
+            {
+                if (tiltDisplay != value)
+                {
+                    tiltDisplay = value;
+                    OnPropertyChanged(nameof(TiltDisplay));
+                }
+            }
+        }
+
+        public string Status
+        {
+            get { return status; }
+            set
+            {
+                if (status != value)
+                {
+                    status = value;
+                    OnPropertyChanged(nameof(Status));
                 }
             }
         }
@@ -338,15 +366,11 @@ namespace WpfSerialTool
         {
             double transmittedTemperature = CombineUnsignedFixed3(tempInt, tempFrac);
 
-            // 判断：如果传上来的值小于 200，说明是正常温度偏移值
-            // 直接减 100 显示，不做反推
             if (transmittedTemperature < 200.0)
             {
                 return transmittedTemperature - 100.0;
             }
 
-            // 否则说明是负温度被转换成超大整型后的值
-            // 按原来的逻辑反推真实温度
             double scale = GetTemperatureRegisterScale();
 
             int rawAsUnsignedInt = (int)Math.Round(
@@ -357,6 +381,45 @@ namespace WpfSerialTool
             short rawSigned = unchecked((short)rawRegister);
 
             return rawSigned * scale;
+        }
+
+        private double DegreesToRadians(double degrees)
+        {
+            return degrees * Math.PI / 180.0;
+        }
+
+        private double RadiansToDegrees(double radians)
+        {
+            return radians * 180.0 / Math.PI;
+        }
+
+        private double CalculateTiltAngle(double roll, double pitch)
+        {
+            double rollRad = DegreesToRadians(roll);
+            double pitchRad = DegreesToRadians(pitch);
+
+            double value = Math.Cos(rollRad) * Math.Cos(pitchRad);
+
+            if (value > 1.0)
+            {
+                value = 1.0;
+            }
+            else if (value < -1.0)
+            {
+                value = -1.0;
+            }
+
+            return RadiansToDegrees(Math.Acos(value));
+        }
+
+        private string GetVerticalStatus(double tilt)
+        {
+            if (tilt < 5.0)
+            {
+                return "垂直";
+            }
+
+            return "不垂直";
         }
 
         private void ParseAndShowSlaveData(byte[] frame, string rawHex)
@@ -387,6 +450,9 @@ namespace WpfSerialTool
                 double yaw = CombineSignedFixed3(yawInt, yawFrac);
                 double temperature = DecodeTemperatureFromReg16ToReg19(tempInt, tempFrac);
 
+                double tilt = CalculateTiltAngle(roll, pitch);
+                string status = GetVerticalStatus(tilt);
+
                 int digits = GetTemperatureRegisterScale() == 0.01 ? 2 : 1;
 
                 AppendLog(
@@ -394,13 +460,15 @@ namespace WpfSerialTool
                     "从站[" + slaveId + "] -> 横滚=" + roll.ToString("F3") +
                     "° 俯仰=" + pitch.ToString("F3") +
                     "° 航向=" + yaw.ToString("F3") +
-                    "° 温度=" + Math.Round(
+                    "° 倾角=" + tilt.ToString("F3") +
+                    "° 状态=" + status +
+                    " 温度=" + Math.Round(
                                         temperature,
                                         digits,
                                         MidpointRounding.AwayFromZero
                                     ).ToString("F3") + "℃");
 
-                UpdateSlaveDataGrid(slaveId, roll, pitch, yaw, temperature, rawHex);
+                UpdateSlaveDataGrid(slaveId, roll, pitch, yaw, tilt, status, temperature, rawHex);
             }
             catch (Exception ex)
             {
@@ -408,21 +476,33 @@ namespace WpfSerialTool
             }
         }
 
-        private void UpdateSlaveDataGrid(int slaveId, double roll, double pitch, double yaw, double temperature, string rawHex)
+        private void UpdateSlaveDataGrid(
+            int slaveId,
+            double roll,
+            double pitch,
+            double yaw,
+            double tilt,
+            string status,
+            double temperature,
+            string rawHex)
         {
             int digits = GetTemperatureRegisterScale() == 0.01 ? 2 : 1;
             SlaveData existing = slaveDataList.FirstOrDefault(s => s.SlaveId == slaveId);
+
+            string temperatureText = Math.Round(
+                                        temperature,
+                                        digits,
+                                        MidpointRounding.AwayFromZero
+                                    ).ToString("F3");
 
             if (existing != null)
             {
                 existing.RollDisplay = roll.ToString("F3");
                 existing.PitchDisplay = pitch.ToString("F3");
                 existing.YawDisplay = yaw.ToString("F3");
-                existing.TemperatureDisplay = Math.Round(
-                                                    temperature,
-                                                    digits,
-                                                    MidpointRounding.AwayFromZero
-                                                ).ToString("F3");
+                existing.TiltDisplay = tilt.ToString("F3");
+                existing.Status = status;
+                existing.TemperatureDisplay = temperatureText;
                 existing.UpdateTime = DateTime.Now.ToString("HH:mm:ss");
                 existing.RawHex = rawHex;
             }
@@ -434,11 +514,9 @@ namespace WpfSerialTool
                     RollDisplay = roll.ToString("F3"),
                     PitchDisplay = pitch.ToString("F3"),
                     YawDisplay = yaw.ToString("F3"),
-                    TemperatureDisplay = Math.Round(
-                                                    temperature,
-                                                    digits,
-                                                    MidpointRounding.AwayFromZero
-                                                ).ToString("F3"),
+                    TiltDisplay = tilt.ToString("F3"),
+                    Status = status,
+                    TemperatureDisplay = temperatureText,
                     UpdateTime = DateTime.Now.ToString("HH:mm:ss"),
                     RawHex = rawHex
                 });
