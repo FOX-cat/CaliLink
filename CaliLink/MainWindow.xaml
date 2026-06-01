@@ -194,9 +194,10 @@
             <Grid Margin="20,0">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="460"/>
-                    <ColumnDefinition Width="150"/>
-                    <ColumnDefinition Width="180"/>
+                    <ColumnDefinition Width="400"/>
+                    <ColumnDefinition Width="140"/>
+                    <ColumnDefinition Width="300"/>
+                    <ColumnDefinition Width="100"/>
                 </Grid.ColumnDefinitions>
 
                 <StackPanel Orientation="Vertical" VerticalAlignment="Center">
@@ -220,13 +221,13 @@
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="88"/>
+                            <ColumnDefinition Width="78"/>
                             <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="88"/>
+                            <ColumnDefinition Width="78"/>
                             <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="42"/>
+                            <ColumnDefinition Width="36"/>
                             <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="42"/>
+                            <ColumnDefinition Width="36"/>
                         </Grid.ColumnDefinitions>
 
                         <Ellipse x:Name="ledPort"
@@ -252,7 +253,7 @@
                                  Height="14"
                                  Fill="Gray"
                                  VerticalAlignment="Center"
-                                 Margin="12,0,6,0"/>
+                                 Margin="10,0,6,0"/>
                         <StackPanel Grid.Column="3" VerticalAlignment="Center">
                             <TextBlock Text="校准"
                                        Foreground="White"
@@ -269,7 +270,7 @@
                                  Height="14"
                                  Fill="Gray"
                                  VerticalAlignment="Center"
-                                 Margin="12,0,6,0"/>
+                                 Margin="10,0,6,0"/>
                         <TextBlock Grid.Column="5"
                                    Text="TX"
                                    Foreground="#9CA3AF"
@@ -282,7 +283,7 @@
                                  Height="14"
                                  Fill="Gray"
                                  VerticalAlignment="Center"
-                                 Margin="12,0,6,0"/>
+                                 Margin="10,0,6,0"/>
                         <TextBlock Grid.Column="7"
                                    Text="RX"
                                    Foreground="#9CA3AF"
@@ -317,8 +318,50 @@
                     </StackPanel>
                 </Border>
 
+                <Border Grid.Column="3"
+                        Margin="4,10,4,10"
+                        Padding="12,8"
+                        CornerRadius="10"
+                        Background="#0F172A"
+                        BorderBrush="#233044"
+                        BorderThickness="1"
+                        VerticalAlignment="Center">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <Ellipse x:Name="ledTouchBottom"
+                                 Grid.Column="0"
+                                 Width="20"
+                                 Height="20"
+                                 Fill="LimeGreen"
+                                 VerticalAlignment="Center"
+                                 Margin="0,0,10,0"/>
+
+                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                            <TextBlock Text="触底状态"
+                                       Foreground="#C8D1DC"
+                                       FontSize="12"/>
+
+                            <TextBlock x:Name="txtTouchBottomStatus"
+                                       Text="未触底"
+                                       Foreground="LimeGreen"
+                                       FontSize="14"
+                                       FontWeight="Bold"/>
+
+                            <TextBlock x:Name="txtTouchBottomHint"
+                                       Text="继续下放"
+                                       Foreground="LimeGreen"
+                                       FontSize="11"
+                                       TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
                 <TextBlock x:Name="txtClock"
-                           Grid.Column="3"
+                           Grid.Column="4"
                            HorizontalAlignment="Right"
                            VerticalAlignment="Center"
                            Foreground="#93C5FD"

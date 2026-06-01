@@ -196,6 +196,7 @@ namespace WpfSerialTool
             SetLed(ledCalibrate, Brushes.Gray);
             SetLed(ledSend, Brushes.Gray);
             SetLed(ledReceive, Brushes.Gray);
+            SetTouchBottomStatus(false);
 
             txtPortStatus.Text = "未连接";
             txtCalibrateStatus.Text = "待机";
@@ -521,6 +522,55 @@ namespace WpfSerialTool
                     RawHex = rawHex
                 });
             }
+
+            RefreshTouchBottomStatusByMaxSlave();
+        }
+
+        private void SetTouchBottomStatus(bool suspectedTouchBottom)
+        {
+            if (suspectedTouchBottom)
+            {
+                SetLed(ledTouchBottom, Brushes.Red);
+
+                txtTouchBottomStatus.Text = "疑似触底";
+                txtTouchBottomStatus.Foreground = Brushes.Red;
+
+                txtTouchBottomHint.Text = "反复上提下放，上提后能显示未触底，且下放后显示触底，则判断为触底。";
+                txtTouchBottomHint.Foreground = Brushes.OrangeRed;
+            }
+            else
+            {
+                SetLed(ledTouchBottom, Brushes.LimeGreen);
+
+                txtTouchBottomStatus.Text = "未触底";
+                txtTouchBottomStatus.Foreground = Brushes.LimeGreen;
+
+                txtTouchBottomHint.Text = "继续下放";
+                txtTouchBottomHint.Foreground = Brushes.LimeGreen;
+            }
+        }
+
+        private void RefreshTouchBottomStatusByMaxSlave()
+        {
+            if (slaveDataList == null || slaveDataList.Count == 0)
+            {
+                SetTouchBottomStatus(false);
+                return;
+            }
+
+            SlaveData maxSlave = slaveDataList
+                .OrderByDescending(s => s.SlaveId)
+                .FirstOrDefault();
+
+            if (maxSlave == null)
+            {
+                SetTouchBottomStatus(false);
+                return;
+            }
+
+            bool suspectedTouchBottom = maxSlave.Status == "不垂直";
+
+            SetTouchBottomStatus(suspectedTouchBottom);
         }
 
         private void AppendLog(string type, string message)
@@ -772,6 +822,8 @@ namespace WpfSerialTool
                 txtCalibrateStatus.Text = "待机";
                 txtCalibrateStatus.Foreground = Brushes.Gray;
                 SetLed(ledCalibrate, Brushes.Gray);
+
+                SetTouchBottomStatus(false);
             }
         }
 
