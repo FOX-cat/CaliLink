@@ -195,8 +195,8 @@
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="400"/>
-                    <ColumnDefinition Width="140"/>
-                    <ColumnDefinition Width="300"/>
+                    <ColumnDefinition Width="160"/>
+                    <ColumnDefinition Width="250"/>
                     <ColumnDefinition Width="100"/>
                 </Grid.ColumnDefinitions>
 
@@ -354,7 +354,7 @@
                             <TextBlock x:Name="txtTouchBottomHint"
                                        Text="继续下放"
                                        Foreground="LimeGreen"
-                                       FontSize="11"
+                                       FontSize="10"
                                        TextWrapping="Wrap"/>
                         </StackPanel>
                     </Grid>
@@ -540,7 +540,26 @@
                                 <DataGridTextColumn Header="俯仰角(°)" Binding="{Binding PitchDisplay}" Width="110"/>
                                 <DataGridTextColumn Header="航向角(°)" Binding="{Binding YawDisplay}" Width="110"/>
                                 <DataGridTextColumn Header="倾角(°)" Binding="{Binding TiltDisplay}" Width="110"/>
-                                <DataGridTextColumn Header="状态" Binding="{Binding Status}" Width="90"/>
+                                <DataGridTextColumn Header="状态" Binding="{Binding Status}" Width="90">
+                                    <DataGridTextColumn.ElementStyle>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="HorizontalAlignment" Value="Center"/>
+                                            <Setter Property="VerticalAlignment" Value="Center"/>
+                                            <Setter Property="Foreground" Value="LimeGreen"/>
+                                            <Setter Property="FontWeight" Value="Bold"/>
+
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding Status}" Value="不垂直">
+                                                    <Setter Property="Foreground" Value="Red"/>
+                                                </DataTrigger>
+
+                                                <DataTrigger Binding="{Binding Status}" Value="垂直">
+                                                    <Setter Property="Foreground" Value="LimeGreen"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </DataGridTextColumn.ElementStyle>
+                                </DataGridTextColumn>
                                 <DataGridTextColumn Header="温度(℃)" Binding="{Binding TemperatureDisplay}" Width="110"/>
                                 <DataGridTextColumn Header="更新时间" Binding="{Binding UpdateTime}" Width="160"/>
 
