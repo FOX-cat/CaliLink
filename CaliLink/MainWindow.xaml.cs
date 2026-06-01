@@ -414,7 +414,7 @@ namespace WpfSerialTool
 
         private string GetVerticalStatus(double tilt)
         {
-            if (tilt < 5.0)
+            if (tilt < 13.0)
             {
                 return "垂直";
             }
