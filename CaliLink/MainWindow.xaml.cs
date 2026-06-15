@@ -935,7 +935,13 @@ namespace WpfSerialTool
 
         private void btnStartCalibrate_Click(object sender, RoutedEventArgs e)
         {
-            byte[] cmd = new byte[] { 0xFF, 0xAA, 0xFF };
+            byte slaveId;
+            if (!TryGetSlaveId(out slaveId))
+            {
+                return;
+            }
+
+            byte[] cmd = new byte[] { slaveId, 0xFF, 0xAA, 0xFF };
             SendBytes(cmd, "发送开始校准命令");
 
             txtCalibrateStatus.Text = "校准中";
@@ -945,7 +951,13 @@ namespace WpfSerialTool
 
         private void btnStopCalibrate_Click(object sender, RoutedEventArgs e)
         {
-            byte[] cmd = new byte[] { 0xAA, 0xFF, 0xFF };
+            byte slaveId;
+            if (!TryGetSlaveId(out slaveId))
+            {
+                return;
+            }
+
+            byte[] cmd = new byte[] { slaveId, 0xAA, 0xFF, 0xAA };
             SendBytes(cmd, "发送停止校准命令");
 
             txtCalibrateStatus.Text = "待机";
