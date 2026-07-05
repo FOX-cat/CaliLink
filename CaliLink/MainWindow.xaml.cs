@@ -957,7 +957,7 @@ namespace WpfSerialTool
                 return;
             }
 
-            byte[] cmd = new byte[] { slaveId, 0xAA, 0xFF, 0xAA };
+            byte[] cmd = new byte[] { slaveId, 0xAA, 0xFF, 0xFF };
             SendBytes(cmd, "发送停止校准命令");
 
             txtCalibrateStatus.Text = "待机";
